@@ -268,13 +268,20 @@ static void load_from_cvs()
     PatchSetMember * psm = NULL;
     char datebuff[20];
     char authbuff[AUTH_STR_MAX];
-    char logbuff[LOG_STR_MAX + 1];
+    int logbufflen = LOG_STR_MAX + 1;
+    char * logbuff = malloc(logbufflen);
     int loglen = 0;
     int have_log = 0;
     char cmd[BUFSIZ];
     char date_str[64];
     char use_rep_buff[PATH_MAX];
     char * ltype;
+
+    if (logbuff == NULL)
+    {
+	debug(DEBUG_SYSERROR, "could not malloc %d bytes for logbuff in load_from_cvs", logbufflen);
+	exit(1);
+    }
 
     if (!no_rlog && !test_log_file && cvs_check_cap(CAP_HAVE_RLOG))
     {
@@ -499,24 +506,22 @@ static void load_from_cvs()
 		 */
 		if (have_log || !is_revision_metadata(buff))
 		{
-		    /* if the log buffer is full, that's it.  
-		     * 
-		     * Also, read lines (fgets) always have \n in them
-		     * which we count on.  So if truncation happens,
-		     * be careful to put a \n on.
-		     * 
-		     * Buffer has LOG_STR_MAX + 1 for room for \0 if
-		     * necessary
-		     */
-		    if (loglen < LOG_STR_MAX)
+		    /* If the log buffer is full, try to reallocate more. */
+		    if (loglen < logbufflen)
 		    {
 			int len = strlen(buff);
 			
-			if (len >= LOG_STR_MAX - loglen)
+			if (len >= logbufflen - loglen)
 			{
-			    debug(DEBUG_APPMSG1, "WARNING: maximum log length exceeded, truncating log");
-			    len = LOG_STR_MAX - loglen;
-			    buff[len - 1] = '\n';
+			    debug(DEBUG_STATUS, "reallocating logbufflen to %d bytes for file %s", logbufflen, file->filename);
+			    logbufflen += (len >= LOG_STR_MAX ? (len+1) : LOG_STR_MAX);
+			    char * newlogbuff = realloc(logbuff, logbufflen);
+			    if (newlogbuff == NULL)
+			    {
+				debug(DEBUG_SYSERROR, "could not realloc %d bytes for logbuff in load_from_cvs", logbufflen);
+				exit(1);
+			    }
+			    logbuff = newlogbuff;
 			}
 
 			debug(DEBUG_STATUS, "appending %s to log", buff);
