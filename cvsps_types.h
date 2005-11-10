@@ -71,6 +71,8 @@ struct _CvsFile
      * with the branch attribute NULL.  Later we need to resolve these.
      */
     int have_branches;
+    char *initial_branch;
+    PatchSet *initial_ps;
 };
 
 struct _PatchSetMember
