@@ -2297,11 +2297,11 @@ static void resolve_global_symbols()
 	ps->tag = sym->tag;
 
 	/* check if this ps is one of the '-r' patchsets */
-	if (restrict_tag_start && strcmp(restrict_tag_start, ps->tag) == 0)
+	if (restrict_tag_start && strcmp(restrict_tag_start, sym->tag) == 0)
 	    restrict_tag_ps_start = ps->psid;
 
 	/* the second -r implies -b */
-	if (restrict_tag_end && strcmp(restrict_tag_end, ps->tag) == 0)
+	if (restrict_tag_end && strcmp(restrict_tag_end, sym->tag) == 0)
 	{
 	    restrict_tag_ps_end = ps->psid;
 
