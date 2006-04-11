@@ -1,0 +1,230 @@
+CVSps (c) 2001,2002,2003 David Mansfield
+------------------------------
+
+Overview.
+--------
+
+CVSps is a program for generating 'patchset' information from a CVS
+repository.  A patchset in this case is defined as a set of changes made
+to a collection of files, and all committed at the same time (using a
+single 'cvs commit' command).  This information is valuable to seeing the
+big picture of the evolution of a cvs project.  While cvs tracks revision
+information, it is often difficult to see what changes were committed
+'atomically' to the repository.
+
+Compiling.
+---------
+
+CVSps is a relatively small program, with only a few modules.
+The Makefile is very simple and should work in most GNU type environments.
+Unfortunately, I've only been able to test on Red Hat Linux, so YMMV.  As
+CVSps matures, I'm sure a more sophisticated build environment will evolve
+with it.  For now, just try 'make' and 'make install'.  If you have any 
+problems let me know.
+
+Running.
+-------
+
+Note: not all options are necessarily discussed here.  Please check the
+output of 'cvsps -h' and/or the manual page for the most up-to-date info.
+
+CVSps operates by parsing the 'cvs log' output.  So to run it, you must
+be in the working directory of a cvs project.  CVSps handles
+subdirectories fine, so run it in the top directory of your project.
+
+a) the ~/.cvsps/cvsps.cache file (or so it's called)
+
+Because you may have a *lot* of revision history in your project, and/or
+your connection to the cvs server may be slow or congested, CVSps uses a
+cache file for most operations.  The first time you run CVSps, just issue:
+
+cvsps
+
+and will begin reading and parsing the cvs log.  When it is finished it
+will output all of the patchset information to stdout, and it will also
+generate the '~/.cvsps/cvsps.cache' file.  Note: for historical reasons
+this file is still called the cvsps.cache file, but in reality it is named
+based on the CVS/Root and CVS/Repository contents, and thus is shared for
+the same repository checked out in multiple places.
+
+If the cache file exists, it won't ever be automatically updated.  To
+update the cache with cvs activity that has occurred since the ~/.cvsps/cvsps.cache
+was last updated, use:
+
+cvsps -u
+
+If you question the integrity of the ~/.cvsps/cvsps.cache, or for some other reason
+want to force a full cache rebuild, use (you could also 'rm' the cache file):
+
+cvsps -x
+
+b) Reading the output.
+
+CVSps's output is information about patchsets.  A patchset looks like:
+
+---------------------
+PatchSet 999
+Date: 2002/07/11 19:50:46
+Author: alan
+Branch: HEAD
+Tag: (none)
+Log:
+[PATCH] Fix several pdc202xx problems
+
+Misnaming of 20270 as 20268R
+Failure of LBA48 on 20262
+Incorrect speed detection because the old driver used host not drive side
+cable detect
+PDC202xx handling for quirks in udma reporting off some drives
+LBA48 for PIO mode
+
+BKrev: 3d2dd386wJMnehoOAhv3wL991IfXVQ
+
+Members:
+  ChangeSet:1.999->1.1000
+  MAINTAINERS:1.74->1.75
+  drivers/ide/ide-features.c:1.4->1.5
+  drivers/ide/ide-pci.c:1.18->1.19
+  drivers/ide/pdc202xx.c:1.11->1.12
+  include/linux/pci_ids.h:1.44->1.45
+
+---------------------
+
+This patchset is taken from the linux kernel BK->CVS tree.  It shows the date, 
+the author, log message and each file that was modified.  For each file the
+pre-commit and post-commit revisions are given.  You can also see (if 
+applicable, not in this case) if the files are on a branch, as well as the
+tag (see TAGS below).
+
+Patchsets are ordered by commit timestamp, so as long as the clock on your
+cvs server is monotonic, the numbering of patchsets should be invariant
+across cache-rebuilds. (see COMPATIBILITY below).
+
+c) Limiting the patchset output.
+
+The default output of CVSps is to show all patchsets.  This can be
+filtered in one of many ways.  These flags can be combined to really
+limit the output to what you're interested in.
+
+By id.  With the -s <ps range> you can specify individual PatchSets by
+number or by range.  Ranges can be of the form '<number>', '<number>-',
+'-<number>' and of course '<number>-<number>'.  Multiple ranges can be
+specified seperated by commas.  E.g.
+
+cvsps -s 999-1020,1025,4956-
+
+By author.  With the -a <author> flag you limit the output to patchsets
+committed by a given author.  The author is usually the UNIX login id.
+
+By file.  With the -f <file regex> flag you limit the output to patchsets 
+that have modified the given file.  Because a regular expression can have
+many pieces 'or'ed together, you can specify many different files here,
+for example (note also the use of the ^ character):
+
+cvsps -f '^net/ipv4|^net/core'
+
+By date.  With one date specification, CVSps shows only patchsets newer
+than the date given, and with two dates, it shows patchsets between the
+two dates.
+
+*NOTE ON DATE FORMAT*.  Because I'm lazy, only one date format is
+currently acceptable. 'YYYY/MM/DD HH:MM:SS'  where time is given as
+localtime, and HH is in 24 hour format.  NOTE ALSO that cvs tends to
+display times as GMT, but parse dates as localtime, so when using the '-D'
+with cvs you need to convert from GMT to localtime in your head.  CVSps is
+not as fancy.  It treats all dates as if in localtime, and therefore you
+give CVSps dates the same way it gives them to you.
+
+By branch.  With the -b <branch> flag you limit the output to patchsets
+that have modified the history of the given branch.  Note, this 
+doesn't necessarily mean the commit itself was made on the branch, since
+the files in question may have existed prior to the branch point, in which
+case changes made to a given file before the branch point affect the file
+as it exists in the head of the branch.  If you want to restrict to the
+main branch, use a branch of 'HEAD'.
+
+By log comment.  With the -l <regex> flag you can limit the ouptut to
+patchsets with the commit message matching the regex.
+
+By tag.  With the -r <tag1> -r <tag2> you can limit the patchsets to
+commits after a given tag1 and, optionally, before tag2.
+
+d) viewing the changes made by a patchset.
+
+To show the 'diff' output for a given patchset, use -g.
+
+It will show you the diff of changes made by the selected commits.
+Some effort was made to ensure that the patches are valid, even in the 
+case of removing or creating files, a case in which 'cvs diff' fails.  
+The patches generated are, generally speaking, applyable in the working
+directory with the '-p1' option to the patch command.
+
+e) what is timestamp fuzz factor (-z option)?
+
+There's another annoying feature of cvs.  When you commit a large change,
+the timestamp on the change is created per file committed.  For example:
+if you commit changes to 60 files on a slow server, taking, say, 60
+seconds, the 'commit time' as given in the log message for the first file
+will differ from that of the last file by 60 seconds.
+
+The fuzz factor attempts to workaround this by saying: commits by the same
+author, using the same log message, within <fuzz> seconds are considered
+part of the same patchset.  The default fuzz is 300 seconds (5 minutes).
+
+TAGS
+----
+
+Please read the manual page.
+
+COMPATIBILITY
+-------------
+
+One of the main goals of cvsps was to make the patchset numbering stable across
+all time, as long as no funny-business is done to the repository files themselves.
+
+Unfortunately, as bugs have been fixed, the numbering has changed.  This is most
+regrettable, but unavoidable.
+
+Additionally, in version 2.0, two changes have been made which will 'renumber'
+the patch sets.  
+
+1) The false 'globbing' of two commits from nearly the exact same time, by the
+same person, with the same log description but to different branches.  Now,
+these will be reported as 2 patchsets instead of one.
+
+2) The creation of a large volume of patchsets for 'file xyz was originally added on
+branch' log messages.  This occurs whenever a file is originally born on a branch,
+and is exacerbated by the fact that even when all of these files are created with
+a single commit, the 'file xyz...' messages, which contains the actual file name,
+are different, causing a proliferation of these unwanted patchsets.  These patchsets
+are now silently eliminated from the output.
+
+Reporting bugs / submitting patches.
+-----------------------------------
+
+Although the current version is perfect and bug free, you can still send
+bug reports, feature requests and patches to me at:
+
+cvsps@dm.cobite.com
+
+I will try to maintain CVSps and make releases regularly.  The most recent
+version of CVSps will always be available at http://www.cobite.com/cvsps
+
+Special thanks to my employer Cobite and Robert Lippman, who've given me
+time to develop this tool.
+
+Known Problems (this will become the FAQ if anyone ever A any Q).
+----------------------------------------------------------------
+
+1) What is the '*** file xyz doesn't match strip_path abc' error?
+
+This error occurs when one of the subdirectories of the directory you
+ran CVSps in is checked out from a different repository.  CVSps tries
+to remove the repository path information from the filenames that it
+gets to give you working-directory local pathnames.  It does this 
+at startup by parsing the CVS/Root and CVS/Repository files.  If 
+the contents of these two files is different for some subdirectory,
+all of the files in that subdirectory will be ignored. 
+
+You can always run CVSps in that subdirectory, and since it IS a 
+separate repository, that does make a little bit of sense.
