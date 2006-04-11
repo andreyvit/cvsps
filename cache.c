@@ -23,7 +23,7 @@
 #define CACHE_DESCR_BOUNDARY "-=-END CVSPS DESCR-=-\n"
 
 /* change this when making the on-disk cache-format invalid */
-static int cache_version = 1;
+static int cache_version = 2;
 
 /* the tree walk API pretty much requries use of globals :-( */
 static FILE * cache_fp;
@@ -496,8 +496,18 @@ static void dump_patch_set(FILE * fp, PatchSet * ps)
     fprintf(fp, "patchset: %d\n", ps_counter);
     fprintf(fp, "date: %d\n", (int)ps->date);
     fprintf(fp, "author: %s\n", ps->author);
-    fprintf(fp, "tag: %s\n", ps->tag ? ps->tag : "");
-    fprintf(fp, "tag_flags: %d\n", ps->tag_flags);
+    {
+	fprintf(fp, "tags:");
+	struct list_head * tag;
+	for (tag = ps->tags.next; tag != &ps->tags; tag = tag->next)
+	{
+            TagName* tagname = list_entry (tag, TagName, tagnames);
+
+	    fprintf(fp, " %s %d%s", tagname->name, tagname->flags,
+		    (tag->next == &ps->tags) ? "" : ",");
+	}
+	fprintf(fp, "\n");
+    }
     fprintf(fp, "branch: %s\n", ps->branch);
     fprintf(fp, "branch_add: %d\n", ps->branch_add);
     fprintf(fp, "descr:\n%s", ps->descr); /* descr is guaranteed to end with LF */

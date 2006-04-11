@@ -21,6 +21,7 @@ typedef struct _PatchSetRange PatchSetRange;
 typedef struct _CvsFileRevision CvsFileRevision;
 typedef struct _GlobalSymbol GlobalSymbol;
 typedef struct _Tag Tag;
+typedef struct _TagName TagName;
 
 struct _CvsFileRevision
 {
@@ -112,8 +113,7 @@ struct _PatchSet
     time_t max_date;
     char *descr;
     char *author;
-    char *tag;
-    int tag_flags;
+    struct list_head tags;
     char *branch;
     char *ancestor_branch;
     struct list_head members;
@@ -157,6 +157,13 @@ struct _Tag
     char * tag;
     struct list_head global_link;
     struct list_head rev_link;
+};
+
+struct _TagName
+{
+    char * name;
+    int flags;
+    struct list_head tagnames;
 };
 
 #endif /* CVSPS_TYPES_H */

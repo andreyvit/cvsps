@@ -1494,7 +1494,18 @@ static void print_patch_set(PatchSet * ps)
     printf("Branch: %s\n", ps->branch);
     if (ps->ancestor_branch)
 	printf("Ancestor branch: %s\n", ps->ancestor_branch);
-    printf("Tag: %s %s\n", ps->tag ? ps->tag : "(none)", tag_flag_descr[ps->tag_flags]);
+    {
+	printf("Tags:");
+	struct list_head * tagl;
+	for (tagl = ps->tags.next; tagl != &ps->tags; tagl = tagl->next)
+	{
+            TagName* tag = list_entry (tagl, TagName, tagnames);
+
+	    printf(" %s %s%s", tag->name, tag_flag_descr[tag->flags],
+		   (tagl->next == &ps->tags) ? "" : ",");
+	}
+	printf("\n");
+    }
     printf("Log:\n%s\n", ps->descr);
     printf("Members: \n");
 
@@ -2064,8 +2075,7 @@ static PatchSet * create_patch_set()
 	ps->max_date = 0;
 	ps->descr = NULL;
 	ps->author = NULL;
-	ps->tag = NULL;
-	ps->tag_flags = 0;
+	INIT_LIST_HEAD(&ps->tags);
 	ps->branch_add = 0;
 	ps->funk_factor = 0;
 	ps->ancestor_branch = NULL;
@@ -2294,7 +2304,12 @@ static void resolve_global_symbols()
 	    return;
 	}
 
-	ps->tag = sym->tag;
+	{
+	    TagName* tagname = (TagName*)malloc(sizeof(TagName));
+	    tagname->name = sym->tag;
+	    tagname->flags = 0;
+	    list_add(&tagname->tagnames, &ps->tags);
+	}
 
 	/* check if this ps is one of the '-r' patchsets */
 	if (restrict_tag_start && strcmp(restrict_tag_start, sym->tag) == 0)
@@ -2346,7 +2361,8 @@ static void resolve_global_symbols()
 		int flag = check_rev_funk(ps, next_rev);
 		debug(DEBUG_STATUS, "file %s revision %s tag %s: TAG VIOLATION %s",
 		      rev->file->filename, rev->rev, sym->tag, tag_flag_descr[flag]);
-		ps->tag_flags |= flag;
+		/* FIXME: using tags.next is somewhat kludgy */
+		list_entry(ps->tags.next, TagName, tagnames)->flags |= flag;
 	    }
 	}
     }
@@ -2478,6 +2494,11 @@ static int check_rev_funk(PatchSet * ps, CvsFileRevision * rev)
 {
     int retval = TAG_FUNKY;
 
+    struct list_head * tag;
+    for (tag = ps->tags.next; tag != &ps->tags; tag = tag->next)
+    {
+        char* tagname = list_entry (&tag, TagName, tagnames)->name;
+
     while (rev)
     {
 	PatchSet * next_ps = rev->post_psm->ps;
@@ -2490,7 +2511,7 @@ static int check_rev_funk(PatchSet * ps, CvsFileRevision * rev)
 	      ps->date, next_ps->date, rev->rev, rev->branch);
 
 	/*
-	 * If the ps->tag is one of the two possible '-r' tags
+	 * If the tagname is one of the two possible '-r' tags
 	 * then the funkyness is even more important.
 	 *
 	 * In the restrict_tag_start case, this next_ps is chronologically
@@ -2502,9 +2523,9 @@ static int check_rev_funk(PatchSet * ps, CvsFileRevision * rev)
 	 * Start assuming the HIDE/SHOW_ALL case, we will determine
 	 * below if we have a split ps case 
 	 */
-	if (restrict_tag_start && strcmp(ps->tag, restrict_tag_start) == 0)
+	if (restrict_tag_start && strcmp(tagname, restrict_tag_start) == 0)
 	    next_ps->funk_factor = FNK_SHOW_ALL;
-	if (restrict_tag_end && strcmp(ps->tag, restrict_tag_end) == 0)
+	if (restrict_tag_end && strcmp(tagname, restrict_tag_end) == 0)
 	    next_ps->funk_factor = FNK_HIDE_ALL;
 
 	/*
@@ -2517,7 +2538,7 @@ static int check_rev_funk(PatchSet * ps, CvsFileRevision * rev)
 	for (next = next_ps->members.next; next != &next_ps->members; next = next->next)
 	{
 	    PatchSetMember * psm = list_entry(next, PatchSetMember, link);
-	    if (before_tag(psm->post_rev, ps->tag))
+	    if (before_tag(psm->post_rev, tagname))
 	    {
 		retval = TAG_INVALID;
 		/* only set bad_funk for one of the -r tags */
@@ -2530,13 +2551,14 @@ static int check_rev_funk(PatchSet * ps, CvsFileRevision * rev)
 		debug(DEBUG_APPMSG1, 
 		      "WARNING: Invalid PatchSet %d, Tag %s:\n"
 		      "    %s:%s=after, %s:%s=before. Treated as 'before'", 
-		      next_ps->psid, ps->tag, 
+		      next_ps->psid, tagname, 
 		      rev->file->filename, rev->rev, 
 		      psm->post_rev->file->filename, psm->post_rev->rev);
 	    }
 	}
 
 	rev = rev_follow_branch(rev, ps->branch);
+    }
     }
 
     return retval;
