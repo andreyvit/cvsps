@@ -8,7 +8,7 @@
 
 #include <time.h>
 
-#define LOG_STR_MAX 32768
+#define LOG_STR_MAX 65536
 #define AUTH_STR_MAX 64
 #define REV_STR_MAX 64
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
