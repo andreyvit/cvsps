@@ -2599,7 +2599,7 @@ static void determine_branch_ancestor(PatchSet * ps, PatchSet * head_ps)
 	 * note: rev is the pre-commit revision, not the post-commit
 	 */
 	if (!head_ps->ancestor_branch)
-	    d1 = 0;
+	    d1 = -1;
 	else if (strcmp(ps->branch, rev->branch) == 0)
 	    continue;
 	else if (strcmp(head_ps->ancestor_branch, "HEAD") == 0)
