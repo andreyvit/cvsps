@@ -2384,8 +2384,31 @@ void patch_set_add_member(PatchSet * ps, PatchSetMember * psm)
     for (next = ps->members.next; next != &ps->members; next = next->next) 
     {
 	PatchSetMember * m = list_entry(next, PatchSetMember, link);
-	if (m->file == psm->file && ps->collision_link.next == NULL) 
-		list_add(&ps->collision_link, &collisions);
+	if (m->file == psm->file) {
+		int order = compare_rev_strings(psm->post_rev->rev, m->post_rev->rev);
+
+		/*
+		 * Same revision too? Add it to the collision list
+		 * if it isn't already.
+		 */
+		if (!order) {
+			if (ps->collision_link.next == NULL)
+				list_add(&ps->collision_link, &collisions);
+			return;
+		}
+
+		/*
+		 * If this is an older revision than the one we already have
+		 * in this patchset, just ignore it
+		 */
+		if (order < 0)
+			return;
+
+		/*
+		 * This is a newer one, remove the old one
+		 */
+		list_del(&m->link);
+	}
     }
 
     psm->ps = ps;
