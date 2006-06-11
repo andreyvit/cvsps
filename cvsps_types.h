@@ -163,7 +163,7 @@ struct _TagName
 {
     char * name;
     int flags;
-    struct list_head tagnames;
+    struct list_head link;
 };
 
 #endif /* CVSPS_TYPES_H */

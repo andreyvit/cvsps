@@ -501,7 +501,7 @@ static void dump_patch_set(FILE * fp, PatchSet * ps)
 	struct list_head * tag;
 	for (tag = ps->tags.next; tag != &ps->tags; tag = tag->next)
 	{
-            TagName* tagname = list_entry (tag, TagName, tagnames);
+            TagName* tagname = list_entry (tag, TagName, link);
 
 	    fprintf(fp, " %s %d%s", tagname->name, tagname->flags,
 		    (tag->next == &ps->tags) ? "" : ",");

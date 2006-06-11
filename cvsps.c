@@ -1499,7 +1499,7 @@ static void print_patch_set(PatchSet * ps)
 	struct list_head * tagl;
 	for (tagl = ps->tags.next; tagl != &ps->tags; tagl = tagl->next)
 	{
-            TagName* tag = list_entry (tagl, TagName, tagnames);
+            TagName* tag = list_entry (tagl, TagName, link);
 
 	    printf(" %s %s%s", tag->name, tag_flag_descr[tag->flags],
 		   (tagl->next == &ps->tags) ? "" : ",");
@@ -2308,7 +2308,7 @@ static void resolve_global_symbols()
 	    TagName* tagname = (TagName*)malloc(sizeof(TagName));
 	    tagname->name = sym->tag;
 	    tagname->flags = 0;
-	    list_add(&tagname->tagnames, &ps->tags);
+	    list_add(&tagname->link, &ps->tags);
 	}
 
 	/* check if this ps is one of the '-r' patchsets */
@@ -2362,7 +2362,7 @@ static void resolve_global_symbols()
 		debug(DEBUG_STATUS, "file %s revision %s tag %s: TAG VIOLATION %s",
 		      rev->file->filename, rev->rev, sym->tag, tag_flag_descr[flag]);
 		/* FIXME: using tags.next is somewhat kludgy */
-		list_entry(ps->tags.next, TagName, tagnames)->flags |= flag;
+		list_entry(ps->tags.next, TagName, link)->flags |= flag;
 	    }
 	}
     }
@@ -2497,7 +2497,7 @@ static int check_rev_funk(PatchSet * ps, CvsFileRevision * rev)
     struct list_head * tag;
     for (tag = ps->tags.next; tag != &ps->tags; tag = tag->next)
     {
-        char* tagname = list_entry (&tag, TagName, tagnames)->name;
+        char* tagname = list_entry (&tag, TagName, link)->name;
 
     while (rev)
     {
