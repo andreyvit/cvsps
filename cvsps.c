@@ -1707,13 +1707,13 @@ static int compare_patch_sets_bytime(const PatchSet * ps1, const PatchSet * ps2)
      * know that insertions are unique at this point.
      */
 
-    diff = ps1->date - ps2->date;
-    if (diff)
-	return (diff < 0) ? -1 : 1;
-
     ret = compare_patch_sets_by_members(ps1, ps2);
     if (ret)
 	return ret;
+
+    diff = ps1->date - ps2->date;
+    if (diff)
+	return (diff < 0) ? -1 : 1;
 
     ret = strcmp(ps1->author, ps2->author);
     if (ret)
