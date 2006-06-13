@@ -198,7 +198,7 @@ convert_address(long *dest, const char *addr_str)
     memcpy(dest, &ip.s_addr, sizeof(ip.s_addr));
   }
 #else
-  if ( (*dest = inet_addr(addr_str)) != -1)
+  if ( (*dest = inet_addr(addr_str)) != INADDR_NONE)
   {
     /* nothing */
   }
