@@ -39,7 +39,8 @@ RCSID("$Id: cvsps.c,v 4.106 2005/05/26 03:39:29 david Exp $");
 
 enum
 {
-    NEED_FILE,
+    NEED_RCS_FILE,
+    NEED_WORKING_FILE,
     NEED_SYMS,
     NEED_EOS,
     NEED_START_LOG,
@@ -117,7 +118,9 @@ static int parse_args(int, char *[]);
 static int parse_rc();
 static void load_from_cvs();
 static void init_paths();
-static CvsFile * parse_file(const char *);
+static CvsFile * build_file_by_name(const char *);
+static CvsFile * parse_rcs_file(const char *);
+static CvsFile * parse_working_file(const char *);
 static CvsFileRevision * parse_revision(CvsFile * file, char * rev_str);
 static void assign_pre_revision(PatchSetMember *, CvsFileRevision * rev);
 static void check_print_patch_set(PatchSet *);
@@ -260,7 +263,7 @@ static void load_from_cvs()
 {
     FILE * cvsfp;
     char buff[BUFSIZ];
-    int state = NEED_FILE;
+    int state = NEED_RCS_FILE;
     CvsFile * file = NULL;
     PatchSetMember * psm = NULL;
     char datebuff[20];
@@ -339,10 +342,26 @@ static void load_from_cvs()
 
 	switch(state)
 	{
-	case NEED_FILE:
-	    if (strncmp(buff, "RCS file", 8) == 0 && (file = parse_file(buff)))
+	case NEED_RCS_FILE:
+	    if (strncmp(buff, "RCS file", 8) == 0) {
+              if ((file = parse_rcs_file(buff)) != NULL)
 		state = NEED_SYMS;
+              else
+                state = NEED_WORKING_FILE;
+            }
 	    break;
+	case NEED_WORKING_FILE:
+	    if (strncmp(buff, "Working file", 12) == 0) {
+              if ((file = parse_working_file(buff)))
+		state = NEED_SYMS;
+              else
+                state = NEED_RCS_FILE;
+		break;
+	    } else {
+              // Working file come just after RCS file. So reset state if it was not found
+              state = NEED_RCS_FILE;
+            }
+            break;
 	case NEED_SYMS:
 	    if (strncmp(buff, "symbolic names:", 15) == 0)
 		state = NEED_EOS;
@@ -471,7 +490,7 @@ static void load_from_cvs()
 		have_log = 0;
 		psm = NULL;
 		file = NULL;
-		state = NEED_FILE;
+		state = NEED_RCS_FILE;
 	    }
 	    else
 	    {
@@ -524,7 +543,7 @@ static void load_from_cvs()
 	exit(1);
     }
 
-    if (state != NEED_FILE)
+    if (state != NEED_RCS_FILE)
     {
 	debug(DEBUG_APPERROR, "Error: Log file parsing error. (%d)  Use -v to debug", state);
 	exit(1);
@@ -1038,8 +1057,8 @@ static void init_paths()
      *
      * NOTE: because of some bizarre 'feature' in cvs, when 'rlog' is used
      * (instead of log) it gives the 'real' RCS file path, which can be different
-     * from the 'nominal' repository path because of symlinks in the server and 
-     * the like.  See also the 'parse_file' routine
+     * from the 'nominal' repository path because of symlinks in the server and
+     * the like.  See also the 'parse_rcs_file' routine
      */
     strip_path_len = snprintf(strip_path, PATH_MAX, "%s/%s/", p, repository_path);
 
@@ -1052,9 +1071,8 @@ static void init_paths()
     debug(DEBUG_STATUS, "strip_path: %s", strip_path);
 }
 
-static CvsFile * parse_file(const char * buff)
+static CvsFile * parse_rcs_file(const char * buff)
 {
-    CvsFile * retval;
     char fn[PATH_MAX];
     int len = strlen(buff + 10);
     char * p;
@@ -1128,6 +1146,28 @@ static CvsFile * parse_file(const char * buff)
     }
 
     debug(DEBUG_STATUS, "stripped filename %s", fn);
+
+    return build_file_by_name(fn);
+}
+
+static CvsFile * parse_working_file(const char * buff)
+{
+    char fn[PATH_MAX];
+    int len = strlen(buff + 14);
+
+    /* chop the "LF" */
+    len -= 1;
+    memcpy(fn, buff + 14, len);
+    fn[len] = 0;
+
+    debug(DEBUG_STATUS, "working filename %s", fn);
+
+    return build_file_by_name(fn);
+}
+
+static CvsFile * build_file_by_name(const char * fn)
+{
+    CvsFile * retval;
 
     retval = (CvsFile*)get_hash_object(file_hash, fn);
 
