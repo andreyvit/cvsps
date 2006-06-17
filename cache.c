@@ -365,7 +365,7 @@ enum
     CR_BRANCH_POINT
 };
 
-static void parse_cache_revision(PatchSetMember * psm, const char * p_buff)
+static void parse_cache_revision(PatchSetMember * psm, const char * buff)
 {
     /* The format used to generate is:
      * "file:%s; pre_rev:%s; post_rev:%s; dead:%d; branch_point:%d\n"
@@ -375,35 +375,37 @@ static void parse_cache_revision(PatchSetMember * psm, const char * p_buff)
     char post[REV_STR_MAX];
     int dead = 0;
     int bp = 0;
-    char buff[BUFSIZ];
     int state = CR_FILENAME;
-    const char *s;
-    char * p = buff;
+    const char *sep;
+    char * p;
+    char * c;
 
-    strcpy(buff, p_buff);
-
-    while ((s = strsep(&p, ";")))
+    for (p = buff, sep = buff;			  /* just ensure sep is non-NULL */
+	 (sep != NULL) && (c = strchr(p, ':'));
+	 p = sep + 1)
     {
-	char * c = strchr(s, ':');
+	size_t len;
+	sep = strchr(c, ';');
+	c++;
 
-	if (!c)
-	{
-	    debug(DEBUG_APPERROR, "invalid cache revision line '%s'|'%s'", p_buff, s);
-	    exit(1);
-	}
-
-	*c++ = 0;
+	if (sep != NULL)
+	    len = sep - c;
+	else /* last field in the cache line */
+	    len = strlen(c);
 
 	switch(state)
 	{
 	case CR_FILENAME:
-	    strcpy(filename, c);
+	    memcpy(filename, c, len);
+	    filename[len] = '\0';
 	    break;
 	case CR_PRE_REV:
-	    strcpy(pre, c);
+	    memcpy(pre, c, len);
+	    pre[len] = '\0';
 	    break;
 	case CR_POST_REV:
-	    strcpy(post, c);
+	    memcpy(post, c, len);
+	    post[len] = '\0';
 	    break;
 	case CR_DEAD:
 	    dead = atoi(c);
