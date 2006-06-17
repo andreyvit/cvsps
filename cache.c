@@ -365,6 +365,23 @@ enum
     CR_BRANCH_POINT
 };
 
+void get_filename(char* filename, const char* data)
+{
+    char* special;
+    while ( (special = strchr(data, '\\')) ) {
+	int len = special - data;
+	memcpy (filename, data, len);
+
+	/* copy special char, and skip backslash */
+	filename[len] = data[len+1];
+	filename[len+1] = '\0';
+	filename += len + 1;
+	data += len + 2;
+    };
+    /* remainder: text after last protected char */
+    strcpy (filename, data);
+}
+
 static void parse_cache_revision(PatchSetMember * psm, const char * buff)
 {
     /* The format used to generate is:
@@ -396,8 +413,7 @@ static void parse_cache_revision(PatchSetMember * psm, const char * buff)
 	switch(state)
 	{
 	case CR_FILENAME:
-	    memcpy(filename, c, len);
-	    filename[len] = '\0';
+	    get_filename(filename, c);
 	    break;
 	case CR_PRE_REV:
 	    memcpy(pre, c, len);
@@ -511,6 +527,28 @@ static void write_patch_set_to_cache(PatchSet * ps)
     dump_patch_set(cache_fp, ps);
 }
 
+/*
+ * Outputs a filename with semicolons backslash-quoted
+ */
+static void dump_filename(FILE * fp, const char* filename)
+{
+    size_t len;
+    while(1) {
+	len = strcspn(filename, ";\\");
+
+	if (fwrite (filename, 1, len, fp) != len) {
+	    debug(DEBUG_APPERROR, "short write into cache");
+	    exit(1);
+	}
+	if (filename[len] == '\0')
+	    break;
+
+	/* quote and skip */
+	putc('\\', fp);	putc(filename[len], fp);
+	filename += len + 1;
+    };
+}
+
 static void dump_patch_set(FILE * fp, PatchSet * ps)
 {
     struct list_head * next = ps->members.next;
@@ -537,9 +575,10 @@ static void dump_patch_set(FILE * fp, PatchSet * ps)
 	    bp = 0;
 
 	fflush(fp);
-    
-	fprintf(fp, "file:%s; pre_rev:%s; post_rev:%s; dead:%d; branch_point:%d\n", 
-		psm->file->filename, 
+
+	fputs ("file:", fp);
+	dump_filename (fp, psm->file->filename);
+	fprintf(fp, "; pre_rev:%s; post_rev:%s; dead:%d; branch_point:%d\n", 
 		psm->pre_rev ? psm->pre_rev->rev : "INITIAL", psm->post_rev->rev, 
 		psm->post_rev->dead, bp);
 	next = next->next;
