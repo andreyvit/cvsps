@@ -365,6 +365,18 @@ enum
     CR_BRANCH_POINT
 };
 
+static void unescape(char *dst, const char *src, size_t len)
+{
+    const char *end = src + len;
+    for (; src < end; src++)
+    {
+	if (*src == '\\')
+	    continue;
+	*dst++ = *src;
+    }
+    *dst = 0;
+}
+
 static void parse_cache_revision(PatchSetMember * psm, const char * buff)
 {
     /* The format used to generate is:
@@ -386,6 +398,8 @@ static void parse_cache_revision(PatchSetMember * psm, const char * buff)
     {
 	size_t len;
 	sep = strchr(c, ';');
+	while(sep != NULL && sep[-1] == '\\')
+                sep = strchr(sep + 1, ';');
 	c++;
 
 	if (sep != NULL)
@@ -396,7 +410,7 @@ static void parse_cache_revision(PatchSetMember * psm, const char * buff)
 	switch(state)
 	{
 	case CR_FILENAME:
-	    memcpy(filename, c, len);
+	    unescape(filename, c, len);
 	    filename[len] = '\0';
 	    break;
 	case CR_PRE_REV:
@@ -538,8 +552,23 @@ static void dump_patch_set(FILE * fp, PatchSet * ps)
 
 	fflush(fp);
     
-	fprintf(fp, "file:%s; pre_rev:%s; post_rev:%s; dead:%d; branch_point:%d\n", 
-		psm->file->filename, 
+        if (strchr(psm->file->filename, ';') == NULL)
+                fprintf(fp, "file:%s", psm->file->filename);
+        else
+        {
+                char *buf = malloc(strlen(psm->file->filename) * 2 + 1);
+                char *dst = buf;
+                char *src;
+                for (src = psm->file->filename; *src; ++src) {
+                        if (*src == ';')
+                                *dst++ = '\\';
+                        *dst++ = *src;
+                }
+                *dst++ = 0;
+                fprintf(fp, "file:%s", buf);
+                free(buf);
+        }
+	fprintf(fp, "; pre_rev:%s; post_rev:%s; dead:%d; branch_point:%d\n", 
 		psm->pre_rev ? psm->pre_rev->rev : "INITIAL", psm->post_rev->rev, 
 		psm->post_rev->dead, bp);
 	next = next->next;
