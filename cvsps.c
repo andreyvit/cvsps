@@ -2558,7 +2558,11 @@ static int before_tag(CvsFileRevision * rev, const char * tag)
     CvsFileRevision * tagged_rev = (CvsFileRevision*)get_hash_object(rev->file->symbols, tag);
     int retval = 0;
 
-    if (tagged_rev && 
+    if (tagged_rev && tagged_rev->branch == NULL)
+        debug(DEBUG_APPMSG1, "WARNING: Branch == NULL for: %s %s %s %s %d",
+    	  rev->file->filename, tag, rev->rev, tagged_rev ? tagged_rev->rev : "N/A", retval);
+
+    if (tagged_rev && tagged_rev->branch &&
 	revision_affects_branch(rev, tagged_rev->branch) && 
 	rev->post_psm->ps->date <= tagged_rev->post_psm->ps->date)
 	retval = 1;
