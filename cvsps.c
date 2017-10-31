@@ -1967,6 +1967,10 @@ CvsFileRevision * cvs_file_add_revision(CvsFile * file, const char * rev_str)
     if (!(rev = (CvsFileRevision*)get_hash_object(file->revisions, rev_str)))
     {
 	rev = (CvsFileRevision*)calloc(1, sizeof(*rev));
+        if (rev == NULL)
+        {
+            return (NULL);
+        }
 	rev->rev = get_string(rev_str);
 	rev->file = file;
 	rev->branch = NULL;
@@ -2083,6 +2087,10 @@ static PatchSet * create_patch_set()
 PatchSetMember * create_patch_set_member()
 {
     PatchSetMember * psm = (PatchSetMember*)calloc(1, sizeof(*psm));
+    if (psm == NULL)
+    {
+        return (NULL);
+    }
     psm->pre_rev = NULL;
     psm->post_rev = NULL;
     psm->ps = NULL;
@@ -2204,6 +2212,10 @@ void cvs_file_add_symbol(CvsFile * file, const char * rev_str, const char * p_ta
     if (!sym)
     {
 	sym = (GlobalSymbol*)malloc(sizeof(*sym));
+        if (sym == NULL)
+        {
+            return;
+        }
 	sym->tag = tag_str;
 	sym->ps = NULL;
 	INIT_LIST_HEAD(&sym->tags);
