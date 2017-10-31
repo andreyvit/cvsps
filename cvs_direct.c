@@ -775,7 +775,7 @@ static int parse_patch_arg(char * arg, char ** str)
     if (!tok)
 	return 0;
 
-    if (!*tok == '-')
+    if (!(*tok == '-'))
     {
 	debug(DEBUG_APPERROR, "diff_opts parse error: no '-' starting argument: %s", *str);
 	return 0;
