@@ -364,7 +364,7 @@ void close_cvs_server(CvsServerCtx * ctx)
     if (ctx->compressed)
     {
 	int ret, len;
-	char buff[BUFSIZ];
+        static char buff[BUFSIZ];
 
 	/* 
 	 * there shouldn't be anything left, but we do want
@@ -411,7 +411,7 @@ void close_cvs_server(CvsServerCtx * ctx)
     if (ctx->compressed)
     {
 	int ret = Z_OK, len, eof = 0;
-	char buff[BUFSIZ];
+        static char buff[BUFSIZ];
 
 	/* read to the 'eof'/'eos' marker.  there are two states we 
 	 * track, looking for Z_STREAM_END (application level EOS)
@@ -538,7 +538,7 @@ static void get_cvspass(char * pass, const char * root)
 static void send_string(CvsServerCtx * ctx, const char * str, ...)
 {
     int len;
-    char buff[BUFSIZ];
+    static char buff[BUFSIZ];
     va_list ap;
 
     va_start(ap, str);
@@ -552,7 +552,7 @@ static void send_string(CvsServerCtx * ctx, const char * str, ...)
 
     if (ctx->compressed)
     {
-	char zbuff[BUFSIZ];
+        static char zbuff[BUFSIZ];
 
 	if  (ctx->zout.avail_in != 0)
 	{
