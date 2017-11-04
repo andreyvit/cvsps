@@ -47,7 +47,8 @@ enum
     NEED_START_LOG,
     NEED_REVISION,
     NEED_DATE_AUTHOR_STATE,
-    NEED_EOM
+    NEED_EOM,
+    NEED_LOGM
 };
 
 /* true globals */
@@ -149,6 +150,7 @@ static CvsFileRevision * rev_follow_branch(CvsFileRevision *, const char *);
 static int before_tag(CvsFileRevision * rev, const char * tag);
 static void determine_branch_ancestor(PatchSet * ps, PatchSet * head_ps);
 static void handle_collisions();
+static int count_loglines(PatchSet *);
 static size_t append_logbuff(char **_logbuff, size_t *_logbuffsz,
 	size_t _loglen, char * _buff);
 
@@ -262,32 +264,13 @@ int main(int argc, char *argv[])
     exit(0);
 }
 
-static void load_from_cvs()
+static CvsRlog * cvsrlog_open(void)
 {
-    FILE * cvsfp;
-    char buff[BUFSIZ];
-    int state = NEED_RCS_FILE;
-    CvsFile * file = NULL;
-    PatchSetMember * psm = NULL;
-    char datebuff[20];
-    char authbuff[AUTH_STR_MAX];
-    size_t logbufflen = LOG_STR_MAX + 1;
-    char * logbuff;
-    size_t loglen = 0;
-    int have_log = 0;
-    char cmd[BUFSIZ];
-    char date_str[64];
-    char use_rep_buff[PATH_MAX];
     char * ltype;
-
-    logbuff = malloc(logbufflen);
-    if (logbuff == NULL)
-    {
-	debug(DEBUG_SYSERROR, "could not malloc %lu bytes for logbuff in load_from_cvs", (unsigned long)logbufflen);
-	exit(1);
-    }
-    logbuff[0] = 0;
-    buff[0] = 0;
+    char date_str[64];
+    char cmd[BUFSIZ];
+    char use_rep_buff[PATH_MAX];
+    CvsRlog * cvsrlog;
 
     if (!no_rlog && !test_log_file && cvs_check_cap(CAP_HAVE_RLOG))
     {
@@ -314,43 +297,102 @@ static void load_from_cvs()
 	 * which is necessary to fill in the pre_rev stuff for a 
 	 * PatchSetMember
 	 */
-	snprintf(cmd, BUFSIZ, "cvs %s %s -q %s -d '%s<;%s' %s", compress_arg, norc, ltype, date_str, date_str, use_rep_buff);
+	snprintf(cmd, BUFSIZ, "cvs %s %s %s -d '%s<;%s' %s", compress_arg, norc, ltype, date_str, date_str, use_rep_buff);
     }
     else
     {
 	date_str[0] = 0;
-	snprintf(cmd, BUFSIZ, "cvs %s %s -q %s %s", compress_arg, norc, ltype, use_rep_buff);
+	snprintf(cmd, BUFSIZ, "cvs %s %s %s %s", compress_arg, norc, ltype, use_rep_buff);
     }
-    
+
     debug(DEBUG_STATUS, "******* USING CMD %s", cmd);
 
     cache_date = time(NULL);
 
-    /* FIXME: this is ugly, need to virtualize the accesses away from here */
-    if (test_log_file)
-	cvsfp = fopen(test_log_file, "r");
-    else if (cvs_direct_ctx)
-	cvsfp = cvs_rlog_open(cvs_direct_ctx, repository_path, date_str);
-    else
-	cvsfp = popen(cmd, "r");
+    if (cvs_direct_ctx)
+	return cvs_rlog_open(cvs_direct_ctx, repository_path, date_str);
 
-    if (!cvsfp)
+    cvsrlog = calloc(1, sizeof(*cvsrlog));
+    if (!cvsrlog)
     {
-	debug(DEBUG_SYSERROR, "can't open cvs pipe using command %s", cmd);
+	debug(DEBUG_SYSERROR, "calloc failed");
 	exit(1);
     }
 
-    for (;;)
+    /* FIXME: this is ugly, need to virtualize the accesses away from here */
+    if (test_log_file)
     {
-	char * tst;
-	if (cvs_direct_ctx)
-	    tst = cvs_rlog_fgets(buff, BUFSIZ, cvs_direct_ctx);
-	else
-	    tst = fgets(buff, BUFSIZ, cvsfp);
+	cvsrlog->fp = fopen(test_log_file, "r");
+	if (!cvsrlog->fp)
+	    debug(DEBUG_SYSERROR, "can't open log-file: %s", test_log_file);
+	exit(1);
+    }
+    else
+    {
+	cvsrlog->fp = popen(cmd, "r");
+	if (!cvsrlog->fp)
+	    debug(DEBUG_SYSERROR, "can't open cvs pipe using command %s", cmd);
+	exit(1);
+    }
 
-	if (!tst)
-	    break;
+    return cvsrlog;
+}
 
+static void cvsrlog_close(CvsRlog *cvsrlog)
+{
+    if (cvsrlog->flags & CRLOGF_CVSDIRECT)
+	return cvs_rlog_close(cvsrlog);
+
+    if (test_log_file)
+	fclose(cvsrlog->fp);
+    else
+    {
+	if (pclose(cvsrlog->fp) < 0)
+	{
+	    debug(DEBUG_APPERROR, "cvs rlog command exited with error. aborting");
+	    exit(1);
+	}
+    }
+    free(cvsrlog);
+}
+
+static char * cvsrlog_fgets(CvsRlog *, char * _buff, int _buflen);
+static char * cvsrlog_fgets(CvsRlog * cvsrlog, char * buff, int buflen)
+{
+    if (cvsrlog->flags & CRLOGF_CVSDIRECT)
+	return cvs_rlog_fgets(buff, buflen, cvsrlog);
+    else
+	return fgets(buff, buflen, cvsrlog->fp);
+}
+
+static void load_from_cvs()
+{
+    char buff[BUFSIZ];
+    int state = NEED_RCS_FILE;
+    CvsFile * file = NULL;
+    PatchSetMember * psm = NULL;
+    char datebuff[20];
+    char authbuff[AUTH_STR_MAX];
+    size_t logbufflen = LOG_STR_MAX + 1;
+    char * logbuff;
+    size_t loglen = 0;
+    int have_log = 0;
+    int haslogm = 0, logmstarted = 0;
+    CvsRlog *cvsrlog;
+
+    logbuff = malloc(logbufflen);
+    if (logbuff == NULL)
+    {
+	debug(DEBUG_SYSERROR, "could not malloc %lu bytes for logbuff in load_from_cvs", (unsigned long)logbufflen);
+	exit(1);
+    }
+    logbuff[0] = 0;
+    buff[0] = 0;
+
+    cvsrlog = cvsrlog_open();
+
+    while (cvsrlog_fgets(cvsrlog, buff, sizeof(buff)))
+    {
 	debug(DEBUG_STATUS, "state: %d read line:%s", state, buff);
 
 	switch(state)
@@ -435,7 +477,7 @@ static void load_from_cvs()
 		     * of the info (revs and logs) until we hit the next file
 		     */
 		    psm = NULL;
-		    state = NEED_EOM;
+		    state = haslogm ? NEED_LOGM : NEED_EOM;
 		}
 	    }
 	    break;
@@ -472,10 +514,18 @@ static void load_from_cvs()
 			    psm->post_rev->dead = 1;
 		}
 
-		state = NEED_EOM;
+		state = haslogm ? NEED_LOGM : NEED_EOM;
 	    }
 	    break;
 	case NEED_EOM:
+	    if (!haslogm && CRLOG_HAS_LOGM(cvsrlog))
+	    {
+		/* First encounter of LOGM, switch processing. */
+		haslogm = 1;
+		state = NEED_LOGM;
+		goto dologm;
+	    }
+	 dobounds:
 	    if (strcmp(buff, CVS_LOG_BOUNDARY) == 0)
 	    {
 		if (psm)
@@ -509,8 +559,10 @@ static void load_from_cvs()
 	    {
 		/* other "blahblah: information;" messages can 
 		 * follow the stuff we pay attention to
+		 *
+		 * If server supports LOGM, do not append to logbuff here.
 		 */
-		if (have_log || !is_revision_metadata(buff))
+		if (!haslogm && (have_log || !is_revision_metadata(buff)))
 		{
 		    loglen = append_logbuff(&logbuff, &logbufflen, loglen, buff);
 		    have_log = 1;
@@ -520,7 +572,31 @@ static void load_from_cvs()
 		    debug(DEBUG_STATUS, "ignoring unhandled info %s", buff);
 		}
 	    }
+	    break;
+	case NEED_LOGM:
+	 dologm:
+	    if (!logmstarted)
+	    {
+		if (!CRLOG_IS_LOGM(cvsrlog))
+		    break;
 
+		logmstarted = 1;
+		logbuff[0] = 0;
+		loglen = 0;
+	    }
+	    else if (!CRLOG_IS_LOGM(cvsrlog))
+	    {
+		/*
+		 * Just passed the last LOGM line. continue at EOM for
+		 * revision/file boundary parsing.
+		 */
+		logmstarted = 0;
+		state = NEED_EOM;
+		goto dobounds;
+		break;
+	    }
+
+	    loglen = append_logbuff(&logbuff, &logbufflen, loglen, buff);
 	    break;
 	}
     }
@@ -537,24 +613,8 @@ static void load_from_cvs()
 	debug(DEBUG_APPERROR, "Error: Log file parsing error. (%d)  Use -v to debug", state);
 	exit(1);
     }
-    
-    if (test_log_file)
-    {
-	fclose(cvsfp);
-    }
-    else if (cvs_direct_ctx)
-    {
-	cvs_rlog_close(cvs_direct_ctx);
-    }
-    else
-    {
-	if (pclose(cvsfp) < 0)
-	{
-	    debug(DEBUG_APPERROR, "cvs rlog command exited with error. aborting");
-	    exit(1);
-	}
-    }
 
+    cvsrlog_close(cvsrlog);
     free(logbuff);
 }
 
@@ -1528,6 +1588,24 @@ static void check_print_patch_set(PatchSet * ps)
     fflush(stdout);
 }
 
+static int count_loglines(PatchSet * ps)
+{
+    char *p;
+    int loglines;
+
+    if (!ps->descr)
+	return 0;
+
+    loglines = 0;
+    p = ps->descr;
+    while (*p)
+    {
+	if (*p++ == '\n')
+	    loglines++;
+    }
+    return loglines;
+}
+
 static void print_patch_set(PatchSet * ps)
 {
     struct tm *tm;
@@ -1550,7 +1628,7 @@ static void print_patch_set(PatchSet * ps)
     if (ps->ancestor_branch)
 	printf("Ancestor branch: %s\n", ps->ancestor_branch);
     printf("Tag: %s %s\n", ps->tag ? ps->tag : "(none)", tag_flag_descr[ps->tag_flags]);
-    printf("Log:\n%s\n", ps->descr);
+    printf("Log: %d\n%s\n", count_loglines(ps), ps->descr);
     printf("Members: \n");
 
     while (next != &ps->members)
