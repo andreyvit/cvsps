@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <limits.h>
 #include <unistd.h>
@@ -148,6 +149,8 @@ static CvsFileRevision * rev_follow_branch(CvsFileRevision *, const char *);
 static int before_tag(CvsFileRevision * rev, const char * tag);
 static void determine_branch_ancestor(PatchSet * ps, PatchSet * head_ps);
 static void handle_collisions();
+static size_t append_logbuff(char **_logbuff, size_t *_logbuffsz,
+	size_t _loglen, char * _buff);
 
 int main(int argc, char *argv[])
 {
@@ -268,20 +271,23 @@ static void load_from_cvs()
     PatchSetMember * psm = NULL;
     char datebuff[20];
     char authbuff[AUTH_STR_MAX];
-    int logbufflen = LOG_STR_MAX + 1;
-    char * logbuff = malloc(logbufflen);
-    int loglen = 0;
+    size_t logbufflen = LOG_STR_MAX + 1;
+    char * logbuff;
+    size_t loglen = 0;
     int have_log = 0;
     char cmd[BUFSIZ];
     char date_str[64];
     char use_rep_buff[PATH_MAX];
     char * ltype;
 
+    logbuff = malloc(logbufflen);
     if (logbuff == NULL)
     {
-	debug(DEBUG_SYSERROR, "could not malloc %d bytes for logbuff in load_from_cvs", logbufflen);
+	debug(DEBUG_SYSERROR, "could not malloc %lu bytes for logbuff in load_from_cvs", (unsigned long)logbufflen);
 	exit(1);
     }
+    logbuff[0] = 0;
+    buff[0] = 0;
 
     if (!no_rlog && !test_log_file && cvs_check_cap(CAP_HAVE_RLOG))
     {
@@ -506,30 +512,8 @@ static void load_from_cvs()
 		 */
 		if (have_log || !is_revision_metadata(buff))
 		{
-		    /* If the log buffer is full, try to reallocate more. */
-		    if (loglen < logbufflen)
-		    {
-			int len = strlen(buff);
-			
-			if (len >= logbufflen - loglen)
-			{
-			    debug(DEBUG_STATUS, "reallocating logbufflen to %d bytes for file %s", logbufflen, file->filename);
-			    logbufflen += (len >= LOG_STR_MAX ? (len+1) : LOG_STR_MAX);
-			    char * newlogbuff = realloc(logbuff, logbufflen);
-			    if (newlogbuff == NULL)
-			    {
-				debug(DEBUG_SYSERROR, "could not realloc %d bytes for logbuff in load_from_cvs", logbufflen);
-				exit(1);
-			    }
-			    logbuff = newlogbuff;
-			}
-
-			debug(DEBUG_STATUS, "appending %s to log", buff);
-			memcpy(logbuff + loglen, buff, len);
-			loglen += len;
-			logbuff[loglen] = 0;
-			have_log = 1;
-		    }
+		    loglen = append_logbuff(&logbuff, &logbufflen, loglen, buff);
+		    have_log = 1;
 		}
 		else 
 		{
@@ -570,6 +554,72 @@ static void load_from_cvs()
 	    exit(1);
 	}
     }
+
+    free(logbuff);
+}
+
+static size_t append_logbuff(char **logbuff, size_t *logbuffsz, size_t loglen,
+    char * buff)
+{
+    size_t len, newsz;
+
+    /*
+     * Also, read lines (fgets) always have \n in them
+     * which we count on.  So if truncation happens,
+     * be careful to put a \n on.
+     * 
+     * Buffer has LOG_STR_MAX + 1 for room for \0 if
+     * necessary
+     */
+    len = strlen(buff);
+    if (buff[len - 1] == '\n')
+	len--;
+
+    /*
+     * Ensure some reasonable size; e.g., 50 lines worth of 80 col of text
+     *
+     * Calls to realloc(3) here are "bad form", however, since the code
+     * exists on failure, it is OK.
+     */
+    if (*logbuffsz < (80 * 50))
+    {
+	*logbuffsz = 80 * 50;
+	*logbuff = realloc(*logbuff, *logbuffsz);
+	if (*logbuff == NULL)
+	{
+	    debug(DEBUG_SYSERROR, "could not realloc %lu bytes for logbuff", (unsigned long)*logbuffsz);
+	    exit(1);
+	}
+    }
+
+    if (*logbuffsz - 2 - loglen < len)
+    {
+	if (SIZE_MAX - 2 - loglen < len)
+	{
+	    debug(DEBUG_APPMSG1, "WARNING: maximum log buffer size exceeded, truncating log");
+	    len = SIZE_MAX - 2 - *logbuffsz - loglen;
+
+	    /* however unlikely */
+	    if (len == 0)
+		return loglen;
+	}
+
+	*logbuffsz = loglen + len + 2;
+	*logbuff = realloc(*logbuff, *logbuffsz);
+	if (*logbuff == NULL)
+	{
+	    debug(DEBUG_SYSERROR, "could not realloc %lu bytes for logbuff", (unsigned long)*logbuffsz);
+	    exit(1);
+	}
+    }
+
+    debug(DEBUG_STATUS, "appending %s to log", buff);
+    memcpy(*logbuff + loglen, buff, len);
+    loglen += len;
+    (*logbuff)[loglen] = '\n';
+    (*logbuff)[loglen + 1] = 0;
+
+    return loglen + 1;
 }
 
 static int usage(const char * str1, const char * str2)
