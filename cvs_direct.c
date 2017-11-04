@@ -3,6 +3,7 @@
  * See COPYING file for license information 
  */
 
+#include <assert.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -126,7 +127,7 @@ CvsServerCtx * open_cvs_server(char * p_root, int compress)
 	send_string(ctx, "Root %s\n", ctx->root);
 
 	/* this is taken from 1.11.1p1 trace - but with Mbinary removed. we can't handle it (yet!) */
-	send_string(ctx, "Valid-responses ok error Valid-requests Checked-in New-entry Checksum Copy-file Updated Created Update-existing Merged Patched Rcs-diff Mode Mod-time Removed Remove-entry Set-static-directory Clear-static-directory Set-sticky Clear-sticky Template Set-checkin-prog Set-update-prog Notified Module-expansion Wrapper-rcsOption M E F\n", ctx->root);
+	send_string(ctx, "Valid-responses ok error Valid-requests Checked-in New-entry Checksum Copy-file Updated Created Update-existing Merged Patched Rcs-diff Mode Mod-time Removed Remove-entry Set-static-directory Clear-static-directory Set-sticky Clear-sticky Template Set-checkin-prog Set-update-prog Notified Module-expansion Wrapper-rcsOption M E F LOGM\n", ctx->root);
 
 	send_string(ctx, "valid-requests\n");
 
@@ -853,8 +854,19 @@ void cvs_diff(CvsServerCtx * ctx,
  * the compression state, and there was no way to resynchronize that state with
  * the parent process.  We could use threads...
  */
-FILE * cvs_rlog_open(CvsServerCtx * ctx, const char * rep, const char * date_str)
+CvsRlog * cvs_rlog_open(CvsServerCtx * ctx, const char * rep, const char * date_str)
 {
+    CvsRlog * cvsrlog;
+
+    cvsrlog = calloc(1, sizeof(*cvsrlog));
+    if (!cvsrlog)
+    {
+	debug(DEBUG_SYSERROR, "cvs_rlog_open: calloc failed");
+	exit(1);
+    }
+    cvsrlog->csctx = ctx;
+    cvsrlog->flags = CRLOGF_CVSDIRECT;
+
     /* note: use of the date_str is handled in a non-standard, cvsps specific way */
     if (date_str && date_str[0])
     {
@@ -871,22 +883,39 @@ FILE * cvs_rlog_open(CvsServerCtx * ctx, const char * rep, const char * date_str
      * FIXME: is it possible to create a 'fake' FILE * whose 'refill'
      * function is below?
      */
-    return (FILE*)ctx;
+    return cvsrlog;
 }
 
-char * cvs_rlog_fgets(char * buff, int buflen, CvsServerCtx * ctx)
+char * cvs_rlog_fgets(char * buff, int buflen, CvsRlog * cvsrlog)
 {
     char lbuff[BUFSIZ];
-    int len;
+    int n, len;
 
-    len = read_line(ctx, lbuff);
+    assert(cvsrlog->flags & CRLOGF_CVSDIRECT);
+
+    len = read_line(cvsrlog->csctx, lbuff);
     debug(DEBUG_TCP, "cvs_direct: rlog: read %s", lbuff);
 
-    if (memcmp(lbuff, "M ", 2) == 0)
+    if (memcmp(lbuff, "M ", 2) == 0 || memcmp(lbuff, "LOGM ", 5) == 0)
     {
-	memcpy(buff, lbuff + 2, len - 2);
-	buff[len - 2 ] = '\n';
-	buff[len - 1 ] = 0;
+	if ('L' == lbuff[0])
+	{
+	    n = 5;
+	    CRLOG_SET_LOGM(cvsrlog);
+	}
+	else
+	{
+	    n = 2;
+	    CRLOG_CLR_LOGM(cvsrlog);
+	}
+	if (buflen < len - n) {
+	    fprintf(stderr, "****WARNING**** rlog buffer len(=%d) > "
+		"buflen(=%d)\n", len - n, buflen);
+	    len = buflen;
+	}
+	memcpy(buff, lbuff + n, len - n);
+	buff[len - n ] = '\n';
+	buff[len - n + 1 ] = 0;
     }
     else if (memcmp(lbuff, "E ", 2) == 0)
     {
@@ -901,8 +930,10 @@ char * cvs_rlog_fgets(char * buff, int buflen, CvsServerCtx * ctx)
     return buff;
 }
 
-void cvs_rlog_close(CvsServerCtx * ctx)
+void cvs_rlog_close(CvsRlog * cvsrlog)
 {
+    assert(cvsrlog->flags & CRLOGF_CVSDIRECT);
+    free(cvsrlog);
 }
 
 void cvs_version(CvsServerCtx * ctx, char * client_version, char * server_version)
