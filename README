@@ -65,7 +65,7 @@ CVSps's output is information about patchsets.  A patchset looks like:
 ---------------------
 PatchSet 999
 Date: 2002/07/11 19:50:46
-Author: alan
+Author: alan 
 Branch: HEAD
 Tag: (none)
 Log:
